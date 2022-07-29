@@ -1,4 +1,6 @@
 
+DATA_URL = 'https://raw.githubusercontent.com/outerbounds/metaflow-pyspark/main/example/noaa_example.csv'
+
 def findLargest(df, col_name):
     from pyspark.sql import functions as F
     """
@@ -18,11 +20,19 @@ def findLargest(df, col_name):
 
 def run(spark, param=None):
 
-    print('example parameter', param)
-    df = spark.read.csv(f"s3://ville-sandbox/tmp/noaa/", header=True, inferSchema=True)
-    print(f"The amount of weather readings in {year} is: {df.count()}\n")
+    print('example parameter from @pyspark(job_parameters): ', param)
 
-    print(f"Here are some extreme weather stats for {year}:")
+    # read data over HTTPS - this requires that Serverless has a NAT connection set up
+    # from pyspark import SparkFiles
+    # spark.sparkContext.addFile(DATA_URL)
+    # spark.read.csv("file://"+SparkFiles.get("noaa_example.csv"), header=True, inferSchema=True)
+
+    # read data from an S3 location
+    df = spark.read.csv(f"s3://ville-sandbox/tmp/noaa/", header=True, inferSchema=True)
+
+    print(f"The amount of weather readings is: {df.count()}\n")
+
+    print(f"Here are some extreme weather stats:")
     stats_to_gather = [
         {"description": "Highest temperature", "column_name": "MAX", "units": "°F"},
         {
