@@ -1,0 +1,11 @@
+{
+    "application-id": "YOUR-EMR-SERVERLESS-APP-ID",
+    "execution-role": "YOUR-EMR-SERVERLESS-JOB-ROLE",
+    "spark-parameters": {
+        "spark.driver.cores": 1,
+        "spark.driver.memory": "2g",
+        "spark.executor.cores": 4,
+        "spark.executor.memory": "14g",
+        "spark.executor.instances": 2
+    }   
+}
