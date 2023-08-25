@@ -26,4 +26,4 @@ class PySparkDecorator(StepDecorator):
         return pyspark_wrapper(flow, step_func, **self.attributes)
 
 
-STEP_DECORATORS = [PySparkDecorator]
+STEP_DECORATORS_DESC = [('pyspark', '.PySparkDecorator')]
