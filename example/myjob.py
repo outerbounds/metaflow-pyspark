@@ -56,7 +56,7 @@ def run(spark, param=None):
     ]
 
     for stat in stats_to_gather:
-        max_row = findLargest(df, py_.get(stat, column_name))
+        max_row = findLargest(df, py_.get(stat, "column_name"))
         print(
             f"  {stat['description']}: {max_row[stat['column_name']]}{stat['units']} on {max_row.DATE} at {max_row.NAME} ({max_row.LATITUDE}, {max_row.LONGITUDE})"
         )
