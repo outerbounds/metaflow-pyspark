@@ -6,7 +6,7 @@ from metaflow import pyspark, pypi_base
 import myjob
 
 @pypi_base(
-    packages={"pydash": "5.1.1", "pyarrow": "8.0.0"},
+    packages={"pydash": "5.1.1", "pyarrow": "8.0.0", "pandas": "1.5.3"},
 )
 class PySparkTestFlow(FlowSpec):
 

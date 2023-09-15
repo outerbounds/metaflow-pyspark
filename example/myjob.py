@@ -42,7 +42,6 @@ def run(spark, param=None):
             "column_name": "TEMP",
             "units": "°F",
         },
-        {"description": "Highest wind gust", "column_name": "GUST", "units": "mph"},
         {
             "description": "Highest average wind speed",
             "column_name": "WDSP",
