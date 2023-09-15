@@ -18,8 +18,6 @@ ECR_REPO_NAME=<YOUR-ECR-REPO-NAME> ./build.sh
 ### Running
 1. First deploy the flow to SFN:
 ```
-export METAFLOW_EMR_SERVERLESS_APPLICATION_ID=<YOUR-EMR-SERVERLESS-APP-ID>
-export METAFLOW_EMR_SERVERLESS_EXECUTION_ROLE=<YOUR-EMR-SERVERLESS-JOB-ROLE>
 python sparkflow.py --environment=conda step-functions create
 ```
 
