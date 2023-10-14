@@ -1,3 +1,5 @@
+from pydash import py_
+
 
 DATA_URL = 'https://raw.githubusercontent.com/outerbounds/metaflow-pyspark/main/example/noaa_example.csv'
 
@@ -40,7 +42,6 @@ def run(spark, param=None):
             "column_name": "TEMP",
             "units": "°F",
         },
-        {"description": "Highest wind gust", "column_name": "GUST", "units": "mph"},
         {
             "description": "Highest average wind speed",
             "column_name": "WDSP",
@@ -54,7 +55,7 @@ def run(spark, param=None):
     ]
 
     for stat in stats_to_gather:
-        max_row = findLargest(df, stat["column_name"])
+        max_row = findLargest(df, py_.get(stat, "column_name"))
         print(
             f"  {stat['description']}: {max_row[stat['column_name']]}{stat['units']} on {max_row.DATE} at {max_row.NAME} ({max_row.LATITUDE}, {max_row.LONGITUDE})"
         )
