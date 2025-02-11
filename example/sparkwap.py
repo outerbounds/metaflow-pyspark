@@ -30,6 +30,7 @@ class SparkWAPFlow(FlowSpec):
     @card
     @step
     def audit(self):
+        print(f'audit {self.df} here!')
         self.next(self.publish)
 
     @pyspark(job=job_publish.run, **jobconf)
