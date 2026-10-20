@@ -6,14 +6,11 @@ setup(
     name="metaflow-pyspark",
     version=version,
     description="An EXPERIMENTAL PySpark decorator for Metaflow",
-    author="Ville Tuulos",
-    author_email="ville@outerbounds.co",
+    author="Savin Goyal",
+    author_email="savin@outerbounds.co",
     packages=find_namespace_packages(include=["metaflow_extensions.*"]),
     py_modules=[
         "metaflow_extensions",
-    ],
-    install_requires=[
-         "metaflow"
     ],
     extras_require={
         # query_tags on the Statement Execution API first appear in 0.86.
