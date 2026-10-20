@@ -1,0 +1,43 @@
+name: docs
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    paths:
+      - "docs/**"
+      - "zensical.toml"
+      - "pixi.toml"
+      - ".github/workflows/docs.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: prefix-dev/setup-pixi@v0.9.4
+        with:
+          environments: docs
+      - name: Build documentation
+        run: pixi run -e docs docs-build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: docs
+          path: builtdocs
+          if-no-files-found: error
+      - name: Publish to gh-pages
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./builtdocs
+          publish_branch: gh-pages
