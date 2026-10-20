@@ -13,6 +13,9 @@ from ..plugins.exceptions import (
     QueryTimeout,
     SparkConfigError,
     SparkException,
+    SparkJobCancelled,
+    SparkJobFailed,
+    SparkJobTimeout,
     UnityCatalogError,
 )
 
@@ -25,5 +28,8 @@ __all__ = [
     "QueryCancelled",
     "QueryTimeout",
     "ControlPlaneError",
+    "SparkJobFailed",
+    "SparkJobCancelled",
+    "SparkJobTimeout",
     "UnityCatalogError",
 ]

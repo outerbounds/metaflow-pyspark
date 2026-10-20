@@ -1,17 +1,16 @@
 
-# EXPERIMENTAL `@pyspark` decorator for Metaflow
+# EXPERIMENTAL Spark and Databricks decorators for Metaflow
 
-see `example/sparkflow.py` for an example
-
-## Spark sessions and governed Databricks data
+## Spark sessions, submitted jobs, and governed Databricks data
 
 Documentation: https://outerbounds.github.io/metaflow-pyspark/
 
 ```bash
 pip install -e '.[local]'              # @spark with a local Spark session, needs a JVM
 pip install -e '.[connect]'            # @spark on Databricks through Spark Connect
+pip install -e '.[databricks]'         # Databricks jobs and SQL warehouse statements
+pip install -e '.[emr]'                # @spark / @pyspark on EMR Serverless
 pip install -e '.[catalog]' duckdb     # Unity Catalog tables via credential vending
-pip install -e '.[databricks]'         # SQL warehouse statements
 ```
 
 `databricks-connect` bundles its own `pyspark`, so install `[local]` and `[connect]` into separate environments. The extension detects the clash and names it in the error.
@@ -48,6 +47,48 @@ def crunch(self):
 
 Connect sessions are labelled with the step's pathspec in the Databricks query history, but cannot carry billing tags, which belong to the cluster rather than the session.
 
+### Submitted jobs
+
+When the work has to run on the cluster (a pinned Databricks Runtime, Photon, cluster-scoped libraries, JVM UDFs), `job=` names a function taking `(spark, **job_parameters)` that is packaged and submitted instead:
+
+```python
+@spark(
+    backend="databricks",
+    mode="job",
+    job=etl.summarize,
+    job_parameters=["cutoff"],
+    volume="/Volumes/main/metaflow/staging",
+    runtime_version="15.4.x-scala2.12",
+    photon=True,
+    output_format="pandas",
+)
+@step
+def crunch(self):
+    print(self.spark_df.head())
+```
+
+The function's whole top-level package ships, plus anything named in `include=`, so a job can span several modules; `job_parameters` are pickled across, and the job must not import metaflow. On Databricks the package is staged on a Unity Catalog Volume and run through the Jobs API on serverless compute, an existing cluster (`cluster_id=`), an instance pool, or a new cluster. `backend="emr-serverless"` stages on S3 and runs on EMR Serverless (`application_id=`, `execution_role=`).
+
+The shared wait loop cancels the remote run on interrupt, `SIGTERM`, or timeout, retries control-plane outages without reporting them as job failures, and raises `SparkJobFailed` with the driver's traceback. Run and Spark UI links are logged and recorded as task metadata. `output_format` can also be `table` (with `output_table=`, returning a `UnityCatalogTable`) or `url`, to pass the next step a reference instead of the data. Submitted jobs carry the pathspec as `custom_tags`, which land in `system.billing.usage`; `DATABRICKS_USAGE_QUERY` in `plugins/cost.py` attributes spend per flow, run, and step.
+
+`@pyspark`, the original EMR Serverless decorator, is now an alias of `@spark` with its original defaults (`pyspark_df`, pandas output, `output_pandas`/`output_pyarrow`, `user_timeout`, and a flat `spark_config` with `application-id` and `execution-role`). See `example/sparkflow.py`.
+
+### Existing Databricks jobs and notebooks
+
+```python
+@databricks_job(job_name="nightly-features", parameters={"date": "2026-08-24"})
+@step
+def features(self):
+    print(self.databricks_result)          # each task's exit value and state
+
+@databricks_notebook(notebook_path="/Repos/team/etl/clean", parameters_from=["date"])
+@step
+def clean(self):
+    print(self.notebook_result)            # whatever the notebook passed to dbutils.notebook.exit()
+```
+
+Both trigger work that already exists in the workspace and wait for it, with the same cancellation, error reporting, tags, and metadata as `@spark` jobs.
+
 ### Unity Catalog tables as artifacts
 
 ```python
@@ -83,7 +124,7 @@ Inside an `@spark` step without an explicit `warehouse_id=`, `query()` runs the 
 
 ### Demos
 
-[`demos/01_hello_spark`](demos/01_hello_spark) runs one `@spark` step locally, on serverless, and on a cluster, switched by environment variable. [`demos/02_unity_catalog`](demos/02_unity_catalog) pins a table, mutates it, and replays the original version. [`demos/03_no_cluster`](demos/03_no_cluster) reads the same table through Spark, vending, and a warehouse, side by side.
+[`demos/01_hello_spark`](demos/01_hello_spark) runs one `@spark` step locally, on serverless, and on a cluster, switched by environment variable, plus a Photon job on a pinned runtime. [`demos/02_unity_catalog`](demos/02_unity_catalog) pins a table, mutates it, and replays the original version. [`demos/03_no_cluster`](demos/03_no_cluster) reads the same table through Spark, vending, and a warehouse, side by side. [`demos/04_existing_jobs`](demos/04_existing_jobs) orchestrates existing jobs and a notebook, and ports one to a step. [`demos/06_cost_attribution`](demos/06_cost_attribution) tags jobs and attributes their spend. See [`demos/README.md`](demos/README.md) for setup.
 
 ### Tests
 

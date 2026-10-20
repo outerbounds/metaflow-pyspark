@@ -26,6 +26,15 @@ def clean_env(monkeypatch):
     monkeypatch.delenv("DATABRICKS_CLUSTER_ID", raising=False)
     monkeypatch.delenv("METAFLOW_DATABRICKS_CLUSTER_ID", raising=False)
     monkeypatch.delenv("METAFLOW_SPARK_BACKEND", raising=False)
+    for env in (
+        "METAFLOW_SPARK_MODE",
+        "METAFLOW_DATABRICKS_VOLUME",
+        "METAFLOW_DATABRICKS_RUNTIME_VERSION",
+        "METAFLOW_SPARK_EMR_APPLICATION_ID",
+        "METAFLOW_SPARK_EMR_EXECUTION_ROLE",
+        "METAFLOW_SPARK_EMR_S3_PREFIX",
+    ):
+        monkeypatch.delenv(env, raising=False)
 
 
 class Flow:
@@ -128,3 +137,39 @@ def test_require_explains_how_to_set_the_key():
         require({}, "warehouse_id", "databricks-sql", hint="Set it with ...")
     assert "warehouse_id" in str(exc.value)
     assert "Set it with ..." in str(exc.value)
+
+
+def test_a_legacy_flat_pyspark_config_becomes_an_emr_section():
+    flow = Flow()
+    flow.spark_config = json.dumps(
+        {"application-id": "app-1", "execution-role": "arn:r", "s3-prefix": "s3://b/p"}
+    )
+    config = resolve_config(flow, "spark_config", {})
+    assert config["backend"] == "emr-serverless"
+    assert config["emr-serverless"] == {
+        "application-id": "app-1",
+        "execution-role": "arn:r",
+        "s3-prefix": "s3://b/p",
+    }
+    assert "application-id" not in config
+
+
+def test_an_explicit_emr_section_wins_over_legacy_keys():
+    flow = Flow()
+    flow.spark_config = {
+        "application-id": "legacy",
+        "emr-serverless": {"application-id": "explicit"},
+    }
+    config = resolve_config(flow, "spark_config", {})
+    assert config["emr-serverless"]["application-id"] == "explicit"
+
+
+def test_job_settings_come_from_the_environment(monkeypatch):
+    monkeypatch.setenv("METAFLOW_SPARK_MODE", "job")
+    monkeypatch.setenv("METAFLOW_DATABRICKS_VOLUME", "/Volumes/main/mf/staging")
+    monkeypatch.setenv("METAFLOW_SPARK_EMR_APPLICATION_ID", "app-1")
+    config = resolve_config(None, None, {})
+    assert config["mode"] == "job"
+    assert config["databricks"]["volume"] == "/Volumes/main/mf/staging"
+    assert config["emr-serverless"]["application-id"] == "app-1"
+    assert backend_config(config, "databricks")["mode"] == "job"

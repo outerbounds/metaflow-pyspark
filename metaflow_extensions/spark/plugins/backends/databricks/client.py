@@ -78,6 +78,21 @@ class DatabricksClient:
         return self.sdk.api_client.do(method, path, body=body, query=query) or {}
 
     # ------------------------------------------------------------------
+    def run_url(self, run_id):
+        host = self.host
+        return "%s/jobs/runs/%s" % (host, run_id) if host else None
+
+    def spark_ui_url(self, cluster_id):
+        """Deep link to the Spark UI for a cluster.
+
+        Serverless compute does not expose a cluster-scoped Spark UI, so this returns
+        None there and the run page is the only link.
+        """
+        host = self.host
+        if not host or not cluster_id:
+            return None
+        return "%s/compute/clusters/%s/sparkUi" % (host, cluster_id)
+
     def warehouse_url(self, warehouse_id):
         """Deep link to a SQL warehouse's detail page.
 

@@ -19,7 +19,7 @@ from .client import DatabricksClient
 
 
 class DatabricksConnectBackend(SessionBackend):
-    name = "databricks"
+    name = "databricks-connect"
 
     def __init__(self, config, ctx=None):
         super().__init__(config, ctx)

@@ -3,6 +3,7 @@ from contextlib import contextmanager
 import pytest
 
 from metaflow_extensions.spark.plugins.decorator import (
+    PySparkDecorator,
     SparkDecorator,
     _collect_inputs,
     _resolve,
@@ -23,6 +24,7 @@ from metaflow_extensions.spark.plugins.output import (
 def clean_env(monkeypatch):
     for env in (
         "METAFLOW_SPARK_BACKEND",
+        "METAFLOW_SPARK_MODE",
         "DATABRICKS_CLUSTER_ID",
         "METAFLOW_DATABRICKS_CLUSTER_ID",
     ):
@@ -50,10 +52,38 @@ def test_backend_attributes_land_in_the_backend_section():
     assert config["databricks"]["cluster_id"] == "0101-abc"
 
 
-def test_backend_aliases_resolve_to_the_canonical_section():
-    config = _resolve(Flow(), attrs(backend="databricks-connect", serverless=True))
-    assert config["backend"] == "databricks"
+def test_databricks_variants_share_one_config_section():
+    config = _resolve(Flow(), attrs(backend="connect", serverless=True))
+    assert config["backend"] == "databricks-connect"
     assert config["databricks"]["serverless"] is True
+
+
+def test_emr_attribute_names_are_translated_to_config_keys():
+    config = _resolve(
+        Flow(),
+        attrs(
+            backend="emr",
+            application_id="app-1",
+            execution_role="arn:aws:iam::1:role/r",
+            s3_prefix="s3://bucket/p",
+        ),
+    )
+    assert config["backend"] == "emr-serverless"
+    assert config["emr-serverless"] == {
+        "application-id": "app-1",
+        "execution-role": "arn:aws:iam::1:role/r",
+        "s3-prefix": "s3://bucket/p",
+    }
+
+
+def test_mode_reaches_the_backend_section():
+    config = _resolve(Flow(), attrs(backend="databricks", mode="job"))
+    assert config["databricks"]["mode"] == "job"
+
+
+def test_the_environment_selects_the_mode(monkeypatch):
+    monkeypatch.setenv("METAFLOW_SPARK_MODE", "job")
+    assert _resolve(Flow(), attrs(backend="databricks"))["mode"] == "job"
 
 
 def test_the_environment_selects_the_backend(monkeypatch):
@@ -89,7 +119,7 @@ def test_unset_attributes_do_not_appear_in_the_section():
 
 def test_an_unknown_backend_lists_the_valid_ones():
     with pytest.raises(SparkException, match="local"):
-        _resolve(Flow(), attrs(backend="emr"))
+        _resolve(Flow(), attrs(backend="yarn"))
 
 
 # ----------------------------------------------------------------------
@@ -138,7 +168,59 @@ def test_a_bad_output_format_is_rejected_at_step_init():
 
 def test_an_unknown_backend_is_rejected_at_step_init():
     with pytest.raises(SparkException, match="Unknown @spark backend"):
-        make_decorator(backend="emr-serverless")
+        make_decorator(backend="yarn")
+
+
+def test_reference_formats_need_a_submitted_job():
+    with pytest.raises(SparkConfigError, match="submitted job"):
+        validate_format("table", session=True)
+
+
+def test_table_output_needs_an_output_table():
+    with pytest.raises(SparkConfigError, match="output_table"):
+        make_decorator(output_format="table")
+
+
+# ----------------------------------------------------------------------
+def make_pyspark(**kwargs):
+    deco = PySparkDecorator(attributes=kwargs)
+    deco.step_init(None, None, "features", [], None, None, None)
+    return deco
+
+
+def test_legacy_pyspark_keeps_its_original_defaults():
+    attributes = make_pyspark().attributes
+    assert attributes["output_artifact"] == "pyspark_df"
+    assert attributes["output_format"] == "pandas"
+    assert attributes["backend"] == "emr-serverless"
+
+
+def test_legacy_output_pandas_wins_over_output_pyarrow():
+    # As in the original decorator, output_pandas defaults to True and takes priority.
+    assert make_pyspark(output_pyarrow=True).attributes["output_format"] == "pandas"
+
+
+def test_legacy_output_pyarrow_needs_output_pandas_off():
+    deco = make_pyspark(output_pandas=False, output_pyarrow=True)
+    assert deco.attributes["output_format"] == "arrow"
+
+
+def test_legacy_both_false_means_return_the_url():
+    deco = make_pyspark(output_pandas=False, output_pyarrow=False)
+    assert deco.attributes["output_format"] == "url"
+
+
+def test_legacy_user_timeout_becomes_timeout():
+    assert make_pyspark(user_timeout=30).attributes["timeout"] == 30
+
+
+def test_legacy_spark_config_names_the_config_artifact():
+    assert make_pyspark(spark_config="my_config").attributes["config"] == "my_config"
+
+
+def test_explicit_output_format_wins_over_the_legacy_flags():
+    deco = make_pyspark(output_pandas=True, output_format="polars")
+    assert deco.attributes["output_format"] == "polars"
 
 
 # ----------------------------------------------------------------------

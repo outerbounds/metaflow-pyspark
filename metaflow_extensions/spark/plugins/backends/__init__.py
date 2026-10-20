@@ -5,10 +5,11 @@
     task process. Spark operations execute in-process (local Spark) or on Databricks
     compute (Spark Connect).
 
-``StatementBackend``
-    Submits a SQL statement, polls it, and cancels it. Only the provider-specific calls
-    live in a backend; polling, backoff, timeouts, cancellation, and error
-    classification live here.
+``RemoteBackend``
+    Submits remote work, polls it, and cancels it: a SQL statement
+    (``StatementBackend``) or a packaged Spark job (``JobBackend``). Only the
+    provider-specific calls live in a backend; polling, backoff, timeouts, cancellation,
+    and error classification live here, so every backend gets the same behaviour.
 """
 
 import signal
@@ -24,6 +25,9 @@ from ..exceptions import (
     QueryFailed,
     QueryTimeout,
     SparkException,
+    SparkJobCancelled,
+    SparkJobFailed,
+    SparkJobTimeout,
 )
 
 POLL_INTERVAL_SECONDS = 5
@@ -44,9 +48,11 @@ class SessionBackend:
         raise NotImplementedError
 
 
-class StatementBackend:
+class RemoteBackend:
     #: identifies the backend in handles and log lines, e.g. "databricks-sql"
     name = None
+    #: what the remote work is called in log lines and errors
+    noun = "job"
 
     def __init__(self, config, ctx=None):
         self.config = config
@@ -61,21 +67,34 @@ class StatementBackend:
         raise NotImplementedError
 
     def cancel(self, handle):
-        """Best-effort cancellation of a running statement. Must not raise."""
+        """Best-effort cancellation of running work. Must not raise."""
         raise NotImplementedError
 
+    def fetch_logs(self, handle, stream="stdout") -> "str | None":
+        """Return the work's driver output on `stream`, or None if unavailable."""
+        return None
+
     def read_output(self, handle, output_format):
-        """Materialize the statement's result in `output_format`."""
+        """Materialize the result in `output_format`."""
+        raise NotImplementedError
+
+    def failure_error(self, status, handle):
+        raise NotImplementedError
+
+    def cancelled_error(self, handle):
+        raise NotImplementedError
+
+    def timeout_error(self, timeout_minutes, handle):
         raise NotImplementedError
 
     # ------------------------------------------------------------------
     # shared driver
     # ------------------------------------------------------------------
     def wait(self, ctx, handle, timeout_minutes=None, poll_interval=None):
-        """Poll until the statement reaches a terminal state.
+        """Poll until the work reaches a terminal state.
 
-        Cancels the statement on interrupt, timeout, or any unexpected exception, so
-        that killing a flow does not leave it running and billing.
+        Cancels it on interrupt, timeout, or any unexpected exception, so that killing a
+        flow does not leave it running and billing.
         """
         poll_interval = poll_interval or POLL_INTERVAL_SECONDS
         deadline = None
@@ -107,7 +126,7 @@ class StatementBackend:
                             stream="stderr",
                         )
                         self.safe_cancel(ctx, handle)
-                        raise QueryTimeout(timeout_minutes, handle=handle)
+                        raise self.timeout_error(timeout_minutes, handle)
 
                     if now - last_message > STATUS_MESSAGE_INTERVAL_SECONDS:
                         ctx.log(
@@ -124,8 +143,8 @@ class StatementBackend:
                 self.safe_cancel(ctx, handle)
                 raise
             except SparkException:
-                # Already classified. Leave the statement alone: a control-plane fault
-                # does not mean it is unhealthy, and cancelling blind would be worse.
+                # Already classified. Leave the work alone: a control-plane fault does
+                # not mean it is unhealthy, and cancelling blind would be worse.
                 raise
             except Exception:
                 self.safe_cancel(ctx, handle)
@@ -134,8 +153,8 @@ class StatementBackend:
     def _poll_with_retries(self, ctx, handle):
         """Poll, tolerating transient control-plane failures.
 
-        A provider API outage is reported as ControlPlaneError, never as a failed
-        statement, so users are not sent to debug SQL that ran fine.
+        A provider API outage is reported as ControlPlaneError, never as a failure, so
+        users are not sent to debug code that ran fine.
         """
         last_exc = None
         for attempt in range(CONTROL_PLANE_RETRIES):
@@ -154,13 +173,14 @@ class StatementBackend:
                     )
                     time.sleep(backoff)
         raise ControlPlaneError(
-            "Failed to read the status of statement %s after %d attempts. It may still "
-            "be running.\nLast error: %s%s"
+            "Failed to read the status of %s %s after %d attempts. It may still be "
+            "running.\nLast error: %s%s"
             % (
+                self.noun,
                 handle.job_id,
                 CONTROL_PLANE_RETRIES,
                 last_exc,
-                "\nWarehouse: %s" % handle.ui_url if handle.ui_url else "",
+                "\nDetails: %s" % handle.ui_url if handle.ui_url else "",
             )
         ) from last_exc
 
@@ -176,26 +196,92 @@ class StatementBackend:
                 stream="stderr",
             )
 
-    def run(self, ctx, crash_on_failure=True):
-        """Submit, wait, and classify the outcome."""
+    def run(self, ctx, crash_on_failure=True, show_stdout=False, show_stderr=False):
+        """Submit, wait, surface logs, and classify the outcome."""
         handle = self.submit(ctx)
         ctx.log(
-            "submitted%s" % (" (%s)" % handle.ui_url if handle.ui_url else ""),
+            "submitted %s%s"
+            % (self.noun, " (%s)" % handle.ui_url if handle.ui_url else ""),
             job_id=handle.job_id,
         )
-        status = self.wait(ctx, handle, timeout_minutes=ctx.timeout_minutes)
+        try:
+            status = self.wait(ctx, handle, timeout_minutes=ctx.timeout_minutes)
+        finally:
+            if show_stdout:
+                self._show_logs(ctx, handle, "stdout")
+            if show_stderr:
+                self._show_logs(ctx, handle, "stderr")
         if status.state == JobState.CANCELLED:
-            raise QueryCancelled(
-                "Statement %s was cancelled.%s"
-                % (handle.job_id, "\n%s" % handle.ui_url if handle.ui_url else "")
-            )
+            raise self.cancelled_error(handle)
         if not status.ok and crash_on_failure:
-            raise QueryFailed(status, handle=handle)
+            raise self.failure_error(status, handle)
         return handle, status
+
+    def _show_logs(self, ctx, handle, stream):
+        try:
+            text = self.fetch_logs(handle, stream)
+        except Exception as exc:
+            ctx.log(
+                "could not retrieve %s: %s" % (stream, exc),
+                job_id=handle.job_id,
+                stream="stderr",
+            )
+            return
+        if text:
+            ctx.log(
+                "%s %s\n-----\n%s\n-----" % (self.noun, stream, text.rstrip()),
+                job_id=handle.job_id,
+            )
+
+
+class StatementBackend(RemoteBackend):
+    """A SQL statement: errors are Query*, and the statement's error is the log."""
+
+    noun = "statement"
+
+    def failure_error(self, status, handle):
+        return QueryFailed(status, handle=handle)
+
+    def cancelled_error(self, handle):
+        return QueryCancelled(
+            "Statement %s was cancelled.%s"
+            % (handle.job_id, "\n%s" % handle.ui_url if handle.ui_url else "")
+        )
+
+    def timeout_error(self, timeout_minutes, handle):
+        return QueryTimeout(timeout_minutes, handle=handle)
+
+
+class JobBackend(RemoteBackend):
+    """A packaged Spark job: errors are SparkJob*, and carry the driver's output."""
+
+    noun = "job"
+
+    def failure_error(self, status, handle):
+        return SparkJobFailed(
+            status, handle=handle, logs=self.fetch_logs(handle, "stderr")
+        )
+
+    def cancelled_error(self, handle):
+        return SparkJobCancelled(
+            "Spark job %s was cancelled.%s"
+            % (handle.job_id, "\n%s" % handle.ui_url if handle.ui_url else "")
+        )
+
+    def timeout_error(self, timeout_minutes, handle):
+        return SparkJobTimeout(timeout_minutes, handle=handle)
+
+    def cleanup(self, handle, ctx):
+        """Remove anything staged for the job. Must not raise."""
 
 
 def _progress_message(status, deadline, now):
     msg = "state: %s" % status.state
+    if status.stages:
+        done = sum(s.num_completed or 0 for s in status.stages)
+        total = sum(s.num_tasks or 0 for s in status.stages)
+        if total:
+            msg += " (%d/%d tasks)" % (done, total)
     if deadline:
         msg += ", %d min until timeout" % max(0, int((deadline - now) / 60))
     return msg
@@ -240,33 +326,40 @@ def _cancel_on_signal(backend, ctx, handle):
 
 
 # ----------------------------------------------------------------------
-# session backend registry
+# @spark backend registry
 # ----------------------------------------------------------------------
-# Lazily resolved so that importing this package never pulls in pyspark or
-# databricks-connect. Values are "module:attribute" relative to this package.
-_SESSION_BACKENDS = {
+# Lazily resolved so that importing this package never pulls in pyspark, boto3, or
+# databricks-connect. Values are "module:attribute" relative to this package; the
+# attribute is a class, or a factory taking (config, ctx) that returns an instance.
+_BACKENDS = {
     "local": ".local:LocalSparkBackend",
-    "databricks": ".databricks.connect:DatabricksConnectBackend",
+    "databricks": ".databricks:DatabricksBackend",
+    "databricks-connect": ".databricks.connect:DatabricksConnectBackend",
+    "databricks-jobs": ".databricks.jobs:DatabricksJobsBackend",
+    "emr-serverless": ".emr_serverless:EMRServerlessBackend",
 }
 
 #: Accepted spellings for backend names.
 _ALIASES = {
-    "databricks-connect": "databricks",
-    "databricks_connect": "databricks",
-    "connect": "databricks",
+    "databricks_connect": "databricks-connect",
+    "connect": "databricks-connect",
+    "databricks_jobs": "databricks-jobs",
     "dbx": "databricks",
+    "emr": "emr-serverless",
+    "emr_serverless": "emr-serverless",
+    "emrserverless": "emr-serverless",
 }
 
 
 def canonical_backend(name):
-    """The registry key for `name`, which is also its config section."""
+    """The registry key for `name`."""
     if not isinstance(name, str):
         raise SparkException(
             "@spark(backend=...) must be a string, got %r. Available backends: %s."
             % (name, ", ".join(available_backends()))
         )
     key = _ALIASES.get(name, name)
-    if key not in _SESSION_BACKENDS:
+    if key not in _BACKENDS:
         raise SparkException(
             "Unknown @spark backend '%s'. Available backends: %s."
             % (name, ", ".join(available_backends()))
@@ -274,20 +367,26 @@ def canonical_backend(name):
     return key
 
 
+def config_section(name):
+    """The config section a backend reads: every Databricks variant shares one."""
+    key = canonical_backend(name)
+    return "databricks" if key.startswith("databricks") else key
+
+
 def register_backend(name, target):
-    """Register a session backend. `target` is a class or a "module:attribute" string."""
-    _SESSION_BACKENDS[name] = target
+    """Register a backend. `target` is a class or a "module:attribute" string."""
+    _BACKENDS[name] = target
 
 
 def available_backends():
-    return sorted(_SESSION_BACKENDS)
+    return sorted(_BACKENDS)
 
 
 def get_backend_class(name):
     key = canonical_backend(name)
-    target = _SESSION_BACKENDS[key]
+    target = _BACKENDS[key]
     if isinstance(target, str):
         module_path, _, attr = target.partition(":")
         target = getattr(import_module(module_path, package=__name__), attr)
-        _SESSION_BACKENDS[key] = target
+        _BACKENDS[key] = target
     return target
