@@ -4,6 +4,7 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    environment: pypi
     permissions:
       id-token: write
       contents: read
