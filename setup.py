@@ -6,8 +6,8 @@ setup(
     name="metaflow_pyspark",
     version=version,
     description="An EXPERIMENTAL PySpark decorator for Metaflow",
-    author="Savin Goyal",
-    author_email="savin@outerbounds.co",
+    author="Philipp Rudiger",
+    author_email="prudiger@anaconda.com",
     packages=find_namespace_packages(include=["metaflow_extensions.*"]),
     py_modules=[
         "metaflow_extensions",
