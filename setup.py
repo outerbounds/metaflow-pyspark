@@ -3,7 +3,7 @@ from setuptools import setup, find_namespace_packages
 version = "0.0.3"
 
 setup(
-    name="metaflow-pyspark",
+    name="metaflow_pyspark",
     version=version,
     description="An EXPERIMENTAL PySpark decorator for Metaflow",
     author="Savin Goyal",
