@@ -21,13 +21,13 @@ From a laptop against an Azure workspace, with a warm serverless warehouse:
 
 ```
 path         step s  query s  groups  answer
-baseline       14.2        -       -  reads nothing
-connect        39.9     11.8      17  reference
-vending        28.2      6.6      17  same
-warehouse      26.6      5.0      17  same
+baseline       19.0        -       -  reads nothing
+connect        28.2      2.8      17  reference
+vending        31.1      7.5      17  same
+warehouse      26.5      5.3      17  same
 ```
 
-`step s` runs from task creation to completion, so it includes whatever happens before the step body: `@spark` opens the Connect session before the body starts, which a timer in the body would miss. `query s` is the statement alone. The `baseline` branch reads nothing, so its time is what every task costs in this deployment, and the difference between it and a path's `step s` is what that path adds. Here the three paths add 12 to 26 seconds, mostly opening the session, vending credentials, or reaching the warehouse. On a cold warehouse or a cluster-backed Connect session those numbers change, which is why this is a flow to run on the customer's workspace rather than a table to quote.
+`step s` runs from task creation to completion, so it includes whatever happens before the step body: `@spark` opens the Connect session before the body starts, which a timer in the body would miss. `query s` is the statement alone. The `baseline` branch reads nothing, so its time is what every task costs in this deployment, and the difference between it and a path's `step s` is what that path adds. Here the three paths add 7 to 12 seconds each, mostly opening the session, vending credentials and reading the files from cloud storage, or reaching the warehouse, and earlier runs ordered them differently. On a cold warehouse or a cluster-backed Connect session those numbers change, which is why this is a flow to run on the customer's workspace rather than a table to quote.
 
 The second command reads the view. A view has no Delta version, so `start` warns that the reference is unpinned and every engine reads the view's current state. Connect and the warehouse return the same groups, since dropping `customer_id` does not change the aggregate, and vending reports why it cannot:
 

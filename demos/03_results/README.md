@@ -12,13 +12,13 @@ Chapter 2 compared ways of reading. This chapter holds the reader fixed, a Conne
 | `everything` | every row of the table, which is what `toPandas()` on an unaggregated read does |
 | `reference` | a `UnityCatalogTable` for `ORDERS_DAILY`, written with `saveAsTable` and pinned to the version just written |
 
-`compare` prints each artifact's pickled size, read from the datastore, and then reads each one back. The output looks like this, with sizes taken from the job-based version of this flow:
+`compare` prints each artifact's pickled size, read from the datastore, and then reads each one back:
 
 ```
 form            artifact  holds
 copy               1.3KB  DataFrame, 17 rows
 everything       115.0KB  DataFrame, 3333 rows
-reference          0.7KB  UnityCatalogTable(main.retail.orders_daily @v10)
+reference          0.5KB  UnityCatalogTable(main.retail.orders_daily @v10)
 ```
 
 ## Copy or reference

@@ -61,7 +61,7 @@ class ReadersFlow(FlowSpec):
 
     @step_env("connect")
     @catch(var="failure")
-    @spark(backend="databricks", tags={"read_path": "connect"})
+    @spark(backend="databricks")
     @step
     def connect(self):
         started = time.monotonic()

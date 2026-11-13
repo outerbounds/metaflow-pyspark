@@ -55,7 +55,7 @@ class WritersFlow(FlowSpec):
 
     @step_env("connect")
     @catch(var="failure")
-    @spark(backend="databricks", tags={"write_path": "connect"})
+    @spark(backend="databricks")
     @step
     def connect(self):
         statement = DAILY_SQL.format(source=source(self.table_name, self.version))
