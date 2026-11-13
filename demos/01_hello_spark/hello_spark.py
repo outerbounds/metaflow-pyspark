@@ -1,4 +1,4 @@
-"""Demo 1: the same flow, three places to run it.
+"""Chapter 1: the same flow, three places to run it.
 
     # local Spark, no account, no credentials
     python hello_spark.py run

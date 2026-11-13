@@ -83,7 +83,7 @@ Inside an `@spark` step without an explicit `warehouse_id=`, `query()` runs the 
 
 ### Demos
 
-[`demos/01_hello_spark`](demos/01_hello_spark) runs one `@spark` step locally, on serverless, and on a cluster, switched by environment variable. [`demos/02_unity_catalog`](demos/02_unity_catalog) pins a table, mutates it, and replays the original version. [`demos/03_no_cluster`](demos/03_no_cluster) reads the same table through Spark, vending, and a warehouse, side by side.
+The demos are chapters that ask one question of one table, so the access paths can be compared directly. [`demos/00_seed`](demos/00_seed) creates the table. [`demos/01_hello_spark`](demos/01_hello_spark) runs one `@spark` step locally, on serverless, and on a cluster, switched by environment variable. [`demos/02_reading`](demos/02_reading) runs the same statement through Connect, credential vending, and a warehouse, and checks the answers match. [`demos/03_results`](demos/03_results) compares copying a result into the datastore with passing a pinned reference. [`demos/04_writing`](demos/04_writing) writes the same summary three ways. [`demos/05_reproducibility`](demos/05_reproducibility) pins a table, mutates it, and replays the original version. See [`demos/README.md`](demos/README.md) for setup.
 
 ### Tests
 

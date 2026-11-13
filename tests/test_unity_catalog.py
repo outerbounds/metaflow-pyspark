@@ -670,3 +670,70 @@ def test_unrelated_exceptions_are_not_swallowed_by_the_protocol_translator():
 
     with pytest.raises(RuntimeError, match="network blip"):
         ref.to_arrow()
+
+
+# ----------------------------------------------------------------------
+# writes and lineage
+# ----------------------------------------------------------------------
+def test_write_commits_through_read_write_credentials_and_pins_the_result(tmp_path):
+    import pandas as pd
+    from deltalake import write_deltalake
+
+    path = str(tmp_path / "daily")
+    write_deltalake(path, pd.DataFrame({"id": [1, 2]}))
+    ref = _table_over(path, credentials=AWS_CREDS)
+
+    written = ref.write(pd.DataFrame({"id": [3]}))
+
+    assert written.version == 1
+    assert sorted(written.to_pandas()["id"]) == [1, 2, 3]
+    operations = [call[2]["operation"] for call in ref.client.calls if call[2]]
+    assert "READ_WRITE" in operations
+
+
+def test_read_credentials_are_not_reused_for_a_write():
+    client = FakeClient(credentials=AWS_CREDS)
+    ref = table(client=client)
+    ref.credentials()
+    ref.credentials(operation="READ_WRITE")
+    operations = [call[2]["operation"] for call in client.calls if call[2]]
+    assert operations == ["READ", "READ_WRITE"]
+
+
+def test_managed_tables_refuse_vended_writes():
+    info = dict(TABLE_INFO, table_type="MANAGED")
+    ref = table(client=FakeClient(info=info, credentials=AWS_CREDS))
+    with pytest.raises(UnityCatalogError, match="managed table"):
+        ref.write(None)
+
+
+class _Ctx:
+    pathspec = "RetailFlow/42/features/7"
+    flow_name = "RetailFlow"
+    run_id = "42"
+
+
+def test_stamp_lineage_sets_the_tags_through_query(monkeypatch):
+    from metaflow_extensions.spark.plugins import warehouse
+
+    calls = []
+    monkeypatch.setattr(
+        warehouse,
+        "query",
+        lambda statement, **kwargs: calls.append((statement, kwargs)),
+    )
+    table().stamp_lineage(_Ctx(), warehouse_id="wh-1")
+    assert calls == [
+        (
+            "ALTER TABLE `main`.`retail`.`orders` SET TAGS ("
+            "'metaflow_pathspec' = 'RetailFlow/42/features/7', "
+            "'metaflow_flow' = 'RetailFlow', 'metaflow_run_id' = '42')",
+            {"warehouse_id": "wh-1", "output_format": "none"},
+        )
+    ]
+
+
+def test_lineage_tag_values_are_escaped():
+    from metaflow_extensions.spark.plugins.catalog.unity import _sql_literal
+
+    assert _sql_literal("it's") == "it\\'s"
