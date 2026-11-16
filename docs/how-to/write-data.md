@@ -1,6 +1,6 @@
 # Write Data
 
-Writes go through Spark. In an `@spark` step on Databricks, `self.spark` can turn data held by the task into a DataFrame and save it as a Unity Catalog table, under the step's own grants.
+Most writes go through Spark or a SQL warehouse, so Databricks commits them and Unity Catalog records their lineage. External tables can also be written from the task through vended credentials. In an `@spark` step on Databricks, `self.spark` can turn data held by the task into a DataFrame and save it as a Unity Catalog table, under the step's own grants.
 
 ## Publish a DataFrame from a step
 
@@ -82,22 +82,30 @@ query(
 
 Statement parameters bind single values, and a warehouse cannot receive data held by the task in bulk. This only suits data that is already in Databricks.
 
+## Write an external table without Databricks compute
+
+`write()` commits Arrow or pandas data to the table's Delta files with `deltalake`, using `READ_WRITE` credentials vended by Unity Catalog, and returns a reference pinned to the new version:
+
+```python
+self.daily = UnityCatalogTable("main.ext.orders_daily").write(arrow_table, mode="append")
+```
+
+This needs `MODIFY` and `EXTERNAL USE SCHEMA`, and only works for external tables: Databricks has to commit writes to a managed table, so `write()` refuses one before touching any files. The engine never sees the write, so Unity Catalog records no lineage for it and does not evaluate constraints or generated columns.
+
 ## Label what a run wrote
 
-Unity Catalog records table lineage for writes on its own. Tagging the table with the pathspec connects it back to the exact Metaflow task, which Unity Catalog cannot infer:
+Unity Catalog records table lineage for engine writes on its own. Tagging the table with the pathspec connects it back to the exact Metaflow task, which Unity Catalog cannot infer:
 
 ```python
 from metaflow import current
 
-self.spark.sql(
-    f"ALTER TABLE main.ml.customer_scores SET TAGS ("
-    f"'metaflow_pathspec' = '{current.pathspec}', "
-    f"'metaflow_run_id' = '{current.run_id}')"
-)
+self.daily.stamp_lineage(current)   # metaflow_pathspec, metaflow_flow, metaflow_run_id
 ```
+
+`stamp_lineage` runs `ALTER TABLE ... SET TAGS` through `query()`, so inside an `@spark` step it reuses the session and elsewhere it needs a warehouse.
 
 ## Things that do not write to Databricks
 
 With `backend="local"`, `saveAsTable` writes to a temporary warehouse directory inside the task, which is removed when the step ends unless `spark.sql.warehouse.dir` is set in `spark_parameters`. Use local Spark to test transformation logic, and a Databricks backend to publish.
 
-`UnityCatalogTable` only reads. Its credentials are vended for reading, and writing Delta files directly would bypass Unity Catalog's commit coordination for managed tables.
+`UnityCatalogTable.write()` does not write managed tables, since writing their Delta files directly would bypass Unity Catalog's commit coordination.

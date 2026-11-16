@@ -75,7 +75,7 @@ def spark_backend_kind():
     """The step_env kind matching the @spark backend the environment selects.
 
     For steps whose backend comes from METAFLOW_SPARK_BACKEND rather than the decorator,
-    as in demo 1, so the image matches the backend the step will actually use.
+    as in chapter 1, so the image matches the backend the step will actually use.
     """
     backend = os.environ.get("METAFLOW_SPARK_BACKEND", "local")
     return "local" if backend == "local" else "connect"

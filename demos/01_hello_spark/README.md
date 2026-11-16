@@ -1,6 +1,8 @@
-# Demo 1: the same flow, three places to run it
+# Chapter 1: the same flow, three places to run it
 
 The opening question on most calls is some version of "is this real Spark, or a lookalike". The answer is a flow whose step body does not change between a laptop, Databricks serverless, and an existing Databricks cluster.
+
+This chapter is about where the compute runs, not about data, so it works on `spark.range` and is the only one that needs no Databricks account. The chapters after it hold the compute question still and vary how data is read and written, starting from the Connect session introduced here as `self.spark`.
 
 ## Local, no account
 
