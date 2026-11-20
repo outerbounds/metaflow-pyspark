@@ -11,7 +11,7 @@ Documentation: https://outerbounds.github.io/metaflow-pyspark/
 pip install -e '.[local]'              # @spark with a local Spark session, needs a JVM
 pip install -e '.[connect]'            # @spark on Databricks through Spark Connect
 pip install -e '.[catalog]' duckdb     # Unity Catalog tables via credential vending
-pip install -e '.[databricks]'         # SQL warehouse statements
+pip install -e '.[databricks]'         # SQL warehouse statements and submitted jobs
 ```
 
 `databricks-connect` bundles its own `pyspark`, so install `[local]` and `[connect]` into separate environments. The extension detects the clash and names it in the error.
@@ -48,6 +48,29 @@ def crunch(self):
 
 Connect sessions are labelled with the step's pathspec in the Databricks query history, but cannot carry billing tags, which belong to the cluster rather than the session.
 
+### Submitted Databricks jobs
+
+```python
+@spark(
+    backend="databricks",
+    mode="job",
+    job=jobs.daily.summarize,
+    job_parameters=["table_name"],
+    volume="/Volumes/main/metaflow/staging",
+    output_table="main.retail.orders_daily",
+    output_format="table",
+)
+@step
+def summarize(self):
+    self.daily = self.spark_df          # a UnityCatalogTable pinned to the write
+```
+
+With `mode="job"` the `job=` function runs on Databricks instead of in the task. Use it when the driver has to live on the cluster: a pinned Databricks Runtime, Photon, cluster-scoped `libraries`, or JVM UDFs. The function's top-level package ships, plus anything in `include=` or `packages=`, and `job_parameters` are pickled across. The code package and parameters are staged on the Unity Catalog Volume (`volume=` or `METAFLOW_DATABRICKS_VOLUME`) and the driver script in the submitting user's workspace folder, since serverless compute can't run a Python file from a Volume. The run is submitted through the Jobs API, and the staged files are deleted once it finishes.
+
+Compute is serverless by default (`dependencies=[...]` adds PyPI packages), or `cluster_id=` for an existing cluster, `instance_pool_id=`, or a new job cluster from `runtime_version=` (or `METAFLOW_DATABRICKS_RUNTIME_VERSION`), `photon=True`, `num_workers=`, and `node_type_id=`. A new job cluster carries the step's pathspec as `custom_tags`, so its DBUs can be grouped per flow, run, and step in `system.billing.usage`. Serverless job runs and existing clusters can't be tagged per run.
+
+The driver writes the returned DataFrame to `output_table` or to Parquet under the Volume. `output_format` is `pandas` (the default), `arrow`, `polars`, `none`, `table` (a `UnityCatalogTable` for `output_table`), or `url` (where the output was written). A failed job raises `SparkJobFailed` with the Python traceback from the cluster and the run link. Interrupting or timing out the step cancels the run, and the run link and job id are recorded as task metadata.
+
 ### Unity Catalog tables as artifacts
 
 ```python
@@ -83,7 +106,7 @@ Inside an `@spark` step without an explicit `warehouse_id=`, `query()` runs the 
 
 ### Demos
 
-The demos are chapters that ask one question of one table, so the access paths can be compared directly. [`demos/00_seed`](demos/00_seed) creates the table. [`demos/01_hello_spark`](demos/01_hello_spark) runs one `@spark` step locally, on serverless, and on a cluster, switched by environment variable. [`demos/02_reading`](demos/02_reading) runs the same statement through Connect, credential vending, and a warehouse, and checks the answers match. [`demos/03_results`](demos/03_results) compares copying a result into the datastore with passing a pinned reference. [`demos/04_writing`](demos/04_writing) writes the same summary three ways. [`demos/05_reproducibility`](demos/05_reproducibility) pins a table, mutates it, and replays the original version. See [`demos/README.md`](demos/README.md) for setup.
+The demos are chapters that ask one question of one table, so the access paths can be compared directly. [`demos/00_seed`](demos/00_seed) creates the table. [`demos/01_hello_spark`](demos/01_hello_spark) runs one `@spark` step locally, on serverless, and on a cluster, switched by environment variable. [`demos/02_reading`](demos/02_reading) runs the same statement through Connect, credential vending, and a warehouse, and checks the answers match. [`demos/03_results`](demos/03_results) compares copying a result into the datastore with passing a pinned reference. [`demos/04_writing`](demos/04_writing) writes the same summary three ways. [`demos/05_reproducibility`](demos/05_reproducibility) pins a table, mutates it, and replays the original version. [`demos/06_jobs`](demos/06_jobs) computes the same summary as a submitted Databricks job. See [`demos/README.md`](demos/README.md) for setup.
 
 ### Tests
 

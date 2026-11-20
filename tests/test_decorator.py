@@ -23,6 +23,7 @@ from metaflow_extensions.spark.plugins.output import (
 def clean_env(monkeypatch):
     for env in (
         "METAFLOW_SPARK_BACKEND",
+        "METAFLOW_SPARK_MODE",
         "DATABRICKS_CLUSTER_ID",
         "METAFLOW_DATABRICKS_CLUSTER_ID",
     ):
@@ -50,10 +51,20 @@ def test_backend_attributes_land_in_the_backend_section():
     assert config["databricks"]["cluster_id"] == "0101-abc"
 
 
-def test_backend_aliases_resolve_to_the_canonical_section():
-    config = _resolve(Flow(), attrs(backend="databricks-connect", serverless=True))
-    assert config["backend"] == "databricks"
+def test_databricks_variants_share_one_config_section():
+    config = _resolve(Flow(), attrs(backend="connect", serverless=True))
+    assert config["backend"] == "databricks-connect"
     assert config["databricks"]["serverless"] is True
+
+
+def test_mode_reaches_the_backend_section():
+    config = _resolve(Flow(), attrs(backend="databricks", mode="job"))
+    assert config["databricks"]["mode"] == "job"
+
+
+def test_the_environment_selects_the_mode(monkeypatch):
+    monkeypatch.setenv("METAFLOW_SPARK_MODE", "job")
+    assert _resolve(Flow(), attrs(backend="databricks"))["mode"] == "job"
 
 
 def test_the_environment_selects_the_backend(monkeypatch):
@@ -89,7 +100,7 @@ def test_unset_attributes_do_not_appear_in_the_section():
 
 def test_an_unknown_backend_lists_the_valid_ones():
     with pytest.raises(SparkException, match="local"):
-        _resolve(Flow(), attrs(backend="emr"))
+        _resolve(Flow(), attrs(backend="yarn"))
 
 
 # ----------------------------------------------------------------------
@@ -138,7 +149,17 @@ def test_a_bad_output_format_is_rejected_at_step_init():
 
 def test_an_unknown_backend_is_rejected_at_step_init():
     with pytest.raises(SparkException, match="Unknown @spark backend"):
-        make_decorator(backend="emr-serverless")
+        make_decorator(backend="yarn")
+
+
+def test_reference_formats_need_a_submitted_job():
+    with pytest.raises(SparkConfigError, match="submitted job"):
+        validate_format("table", session=True)
+
+
+def test_table_output_needs_an_output_table():
+    with pytest.raises(SparkConfigError, match="output_table"):
+        make_decorator(output_format="table")
 
 
 # ----------------------------------------------------------------------

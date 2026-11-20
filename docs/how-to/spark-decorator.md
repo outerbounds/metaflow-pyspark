@@ -128,6 +128,8 @@ def crunch(self):
 
 `output_format` is `pandas` (the default), `arrow`, `polars`, or `none`, and `output_artifact=` renames `spark_df`. The function is ordinary importable code, which makes it straightforward to unit-test against a local session.
 
+The function runs in the task here, against the step's session. With `mode="job"` the same function is packaged and run on Databricks instead, as described in [Submit Databricks jobs](submit-jobs.md).
+
 ## Artifacts from Spark Connect
 
 `toPandas()` on a Databricks Connect DataFrame attaches pyspark objects to the result's `DataFrame.attrs`. The extension strips them from every artifact a `@spark` step produces, so steps that read the artifact do not need pyspark installed.

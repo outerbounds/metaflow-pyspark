@@ -2,7 +2,7 @@
 
 A Metaflow extension for working with Spark and governed Databricks data from ordinary flow steps.
 
-- `@spark` gives a step a live `SparkSession`, either local Spark in the task process or Databricks compute through Databricks Connect. The same step body runs on both.
+- `@spark` gives a step a live `SparkSession`, either local Spark in the task process or Databricks compute through Databricks Connect. The same step body runs on both. With `mode="job"` it packages a Spark function and runs it as a Databricks job instead.
 - `UnityCatalogTable` is an artifact that references a Unity Catalog table at a pinned Delta version. A re-run reads the same snapshot without copying the data.
 - `query()` runs one SQL statement on a Databricks SQL warehouse, or on the step's Spark session when there is one, and returns pandas, Arrow, or Polars.
 
@@ -43,7 +43,7 @@ Install from a checkout, choosing the extras for the pieces you use:
 | `pip install -e '.[local]'` | `@spark` with local Spark (needs a JDK) |
 | `pip install -e '.[connect]'` | `@spark` on Databricks through Databricks Connect |
 | `pip install -e '.[catalog]' duckdb` | `UnityCatalogTable` reads through credential vending |
-| `pip install -e '.[databricks]'` | `query()` on a SQL warehouse |
+| `pip install -e '.[databricks]'` | `query()` on a SQL warehouse, and `@spark(mode="job")` |
 
 `databricks-connect` bundles its own copy of `pyspark`, and the two conflict. Install `[local]` and `[connect]` into separate environments; the extension recognizes the clash and names it in the error.
 
@@ -54,3 +54,4 @@ Databricks authentication is delegated to `databricks-sdk`, so anything it under
 - [Use @spark](how-to/spark-decorator.md): pick a backend, configure it, and give a step a session.
 - [Read data](how-to/read-data.md): Spark, credential vending, or a SQL warehouse, and when to use each.
 - [Write data](how-to/write-data.md): publish a DataFrame to Unity Catalog from a step and pin what you wrote.
+- [Submit Databricks jobs](how-to/submit-jobs.md): run Spark code on a job cluster or serverless job compute and get the result back as data or a pinned table.

@@ -1,24 +1,49 @@
 """The @spark step decorator."""
 
 import functools
+import json
 
 from metaflow.decorators import StepDecorator
+from metaflow.metadata_provider import MetaDatum
 
-from .backends import canonical_backend, get_backend_class
+from .backends import (
+    SessionBackend,
+    canonical_backend,
+    config_section,
+    get_backend_class,
+)
 from .config import backend_config, resolve_config
 from .context import TaskContext, log
+from .cost import build_tags
 from .exceptions import SparkConfigError
 from .output import from_spark_dataframe, strip_spark_attrs, validate_format
 
 #: Attributes that describe the compute or the workspace rather than the step, and so
 #: belong in the resolved backend's own config section.
 _BACKEND_ATTRS = (
+    "compute",
     "serverless",
     "cluster_id",
+    "instance_pool_id",
+    "num_workers",
+    "node_type_id",
+    "runtime_version",
+    "photon",
+    "dependencies",
+    "libraries",
+    "volume",
+    "workspace_dir",
+    "output_table",
+    "output_path",
+    "write_mode",
+    "partition_by",
+    "include",
+    "packages",
     "host",
     "token",
     "profile",
     "master",
+    "cloud",
 )
 
 #: Materializing more than this into a step's memory is usually a mistake at Spark
@@ -27,10 +52,10 @@ MATERIALIZE_WARN_BYTES = 1024**3
 
 
 class SparkDecorator(StepDecorator):
-    """Give a step a live Spark session.
+    """Run Spark work as part of a step.
 
-    The step body uses Spark directly, and the session is gone before Metaflow persists
-    the step's artifacts::
+    Session style, where the step body uses Spark directly and the session is gone
+    before Metaflow persists the step's artifacts::
 
         @spark(backend="databricks")
         @step
@@ -38,14 +63,15 @@ class SparkDecorator(StepDecorator):
             df = self.spark.read.table("main.retail.orders")
             self.count = df.count()
 
-    Alternatively, `job=` names a function taking `(spark, **job_parameters)` whose
-    returned DataFrame becomes the `output_artifact`, which keeps Spark code in its own
-    importable, testable module::
+    Job style, where `job=` names a function taking `(spark, **job_parameters)` whose
+    returned DataFrame becomes the `output_artifact`. On a session backend the function
+    runs in the task; with `mode="job"` on Databricks it is packaged and runs on the
+    cluster::
 
-        @spark(backend="databricks", job=etl.summarize, job_parameters=["cutoff"])
+        @spark(backend="databricks", mode="job", job=etl.run, volume="/Volumes/...")
         @step
-        def crunch(self):
-            print(self.spark_df.head())
+        def features(self):
+            print(len(self.spark_df))
     """
 
     name = "spark"
@@ -56,20 +82,54 @@ class SparkDecorator(StepDecorator):
         "session_attr": "spark",
         # where to run it
         "backend": None,
+        "mode": None,
+        "compute": None,
         "serverless": None,
         "cluster_id": None,
+        "instance_pool_id": None,
+        "num_workers": None,
+        "node_type_id": None,
+        "runtime_version": None,
+        "photon": None,
+        "dependencies": None,
+        "libraries": None,
         "master": None,
+        "cloud": None,
         # workspace connection
         "host": None,
         "token": None,
         "profile": None,
+        "volume": None,
+        "workspace_dir": None,
+        # code packaging
+        "include": None,
+        "packages": None,
         # output of a job function
         "output_artifact": "spark_df",
         "output_format": None,
+        "output_table": None,
+        "output_path": None,
+        "write_mode": None,
+        "partition_by": None,
+        "save_output": True,
+        # lifecycle of a submitted job
+        "timeout": None,
+        "crash_on_failure": True,
+        "show_stdout": True,
+        "show_stderr": False,
+        # cost attribution on a new job cluster
+        "tags": None,
         # configuration
         "config": "spark_config",
         "spark_parameters": None,
     }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._metadata = None
+        self._run_id = None
+        self._task_id = None
+        self._retry_count = 0
 
     def step_init(
         self, flow, graph, step_name, decorators, environment, flow_datastore, logger
@@ -84,17 +144,70 @@ class SparkDecorator(StepDecorator):
                 "@spark(job=...) must be a callable taking (spark, **job_parameters), "
                 "got %r." % (self.attributes["job"],)
             )
+        if output_format == "table" and not self.attributes.get("output_table"):
+            raise SparkConfigError(
+                "@spark(output_format='table') needs output_table='catalog.schema.table' "
+                "for the job to write to."
+            )
         if self.attributes.get("backend") is not None:
             canonical_backend(self.attributes["backend"])
+
+    def task_pre_step(
+        self,
+        step_name,
+        task_datastore,
+        metadata,
+        run_id,
+        task_id,
+        flow,
+        graph,
+        retry_count,
+        max_user_code_retries,
+        ubf_context,
+        inputs,
+    ):
+        # Captured here because the wrapper installed by task_decorate has no other way
+        # to reach the metadata provider.
+        self._metadata = metadata
+        self._run_id = run_id
+        self._task_id = task_id
+        self._retry_count = retry_count
+        self._step_name = step_name
 
     def task_decorate(
         self, step_func, flow, graph, retry_count, max_user_code_retries, ubf_context
     ):
-        return _spark_wrapper(self.attributes, step_func, flow, retry_count)
+        return _spark_wrapper(self, step_func, flow, retry_count)
+
+    def record_metadata(self, entries):
+        """Record job details as task metadata so a run stays inspectable later."""
+        if self._metadata is None:
+            return
+        try:
+            self._metadata.register_metadata(
+                self._run_id,
+                self._step_name,
+                self._task_id,
+                [
+                    MetaDatum(
+                        field=field,
+                        value=value,
+                        type=field,
+                        tags=["attempt_id:%s" % self._retry_count],
+                    )
+                    for field, value in entries.items()
+                    if value is not None
+                ],
+            )
+        except Exception:
+            # Metadata is a convenience. Never fail a working Spark job over it.
+            pass
 
 
 # ----------------------------------------------------------------------
-def _spark_wrapper(attrs, step_func, flow, retry_count):
+def _spark_wrapper(deco, step_func, flow, retry_count):
+    attrs = deco.attributes
+
     @functools.wraps(step_func)
     def spark_step():
         from metaflow import current
@@ -110,31 +223,43 @@ def _spark_wrapper(attrs, step_func, flow, retry_count):
             attempt=retry_count,
             user=_username(),
             tags={},
+            job_func=attrs.get("job"),
+            timeout_minutes=config.get("timeout"),
             logger=log,
         )
-        section = backend_config(config, backend_name)
+        ctx.tags = build_tags(ctx, extra=attrs.get("tags"))
+        section = backend_config(config, config_section(backend_name))
         backend = get_backend_class(backend_name)(section, ctx)
-        _run_session(backend, ctx, step_func, flow, attrs)
+        if isinstance(backend, SessionBackend):
+            _run_session(backend, ctx, step_func, flow, attrs)
+        else:
+            ctx.inputs = _collect_inputs(flow, attrs.get("job_parameters"))
+            _run_submit(deco, backend, ctx, step_func, flow, attrs)
 
     return spark_step
 
 
 def _resolve(flow, attrs):
     """Build the effective config, then fold backend-specific attributes into it."""
-    overrides = {}
-    if attrs.get("backend") is not None:
-        overrides["backend"] = attrs["backend"]
+    overrides = {
+        key: attrs[key]
+        for key in ("backend", "mode", "timeout")
+        if attrs.get(key) is not None
+    }
     if attrs.get("spark_parameters"):
         overrides["spark-parameters"] = attrs["spark_parameters"]
 
     config = resolve_config(flow, attrs.get("config"), overrides)
     backend_name = canonical_backend(config["backend"])
     config["backend"] = backend_name
-    section = dict(config.get(backend_name) or {})
+    section_key = config_section(backend_name)
+    section = dict(config.get(section_key) or {})
     for attr in _BACKEND_ATTRS:
         if attrs.get(attr) is not None:
             section[attr] = attrs[attr]
-    config[backend_name] = section
+    if attrs.get("mode") is not None:
+        section["mode"] = attrs["mode"]
+    config[section_key] = section
     return config
 
 
@@ -194,6 +319,38 @@ def _run_session(backend, ctx, step_func, flow, attrs):
     # from_spark_dataframe.
     for value in vars(flow).values():
         strip_spark_attrs(value)
+    _cleanup_output(flow, attrs)
+
+
+def _run_submit(deco, backend, ctx, step_func, flow, attrs):
+    output_format = attrs.get("output_format") or "pandas"
+    handle, status = backend.run(
+        ctx,
+        crash_on_failure=attrs.get("crash_on_failure", True),
+        show_stdout=attrs.get("show_stdout", True),
+        show_stderr=attrs.get("show_stderr", False),
+    )
+
+    deco.record_metadata(
+        {
+            "spark-backend": backend.name,
+            "spark-job-id": handle.job_id,
+            "spark-job-url": handle.ui_url,
+            "spark-ui-url": handle.spark_ui_url,
+            "spark-job-handle": json.dumps(handle.to_dict()),
+        }
+    )
+    if handle.ui_url:
+        ctx.log("job details: %s" % handle.ui_url)
+    if handle.spark_ui_url:
+        ctx.log("Spark UI: %s" % handle.spark_ui_url)
+
+    if attrs.get("output_artifact"):
+        result = backend.read_output(handle, output_format) if status.ok else None
+        _set_output(flow, attrs, result)
+
+    step_func()
+    _cleanup_output(flow, attrs)
 
 
 def _set_output(flow, attrs, value):
@@ -202,6 +359,12 @@ def _set_output(flow, attrs, value):
         return
     _warn_if_large(value, artifact)
     setattr(flow, artifact, value)
+
+
+def _cleanup_output(flow, attrs):
+    artifact = attrs.get("output_artifact")
+    if artifact and not attrs.get("save_output", True) and hasattr(flow, artifact):
+        delattr(flow, artifact)
 
 
 def _warn_if_large(value, artifact):
@@ -219,8 +382,8 @@ def _warn_if_large(value, artifact):
     if size and size > MATERIALIZE_WARN_BYTES:
         # Not warnings.warn(): Metaflow's CLI filters warnings out globally.
         log(
-            "materialized %.1fGB into 'self.%s'. Consider writing the result to a "
-            "Unity Catalog table and passing a UnityCatalogTable reference to the next "
-            "step instead of copying the data." % (size / 1024**3, artifact),
+            "materialized %.1fGB into 'self.%s'. Consider output_format='table' or "
+            "'url' to pass the next step a reference instead of copying the data."
+            % (size / 1024**3, artifact),
             stream="stderr",
         )
