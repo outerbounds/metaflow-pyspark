@@ -12,6 +12,7 @@ nav = [
     {"Use @spark" = "how-to/spark-decorator.md"},
     {"Read Data" = "how-to/read-data.md"},
     {"Write Data" = "how-to/write-data.md"},
+    {"Trigger Databricks Jobs" = "how-to/trigger-jobs.md"},
   ]},
 ]
 
