@@ -40,6 +40,8 @@ The job receives job-level parameters, which work for every task type. `paramete
 
 The job has to declare each parameter under its job-level parameters. Databricks silently ignores a parameter the job doesn't declare, and would run the job with its default, so the step checks the names first and fails with the list the job does declare.
 
+Older jobs may declare no job-level parameters at all. If every task in such a job is a notebook, the values are sent as notebook parameters instead and arrive as widget values, overriding the tasks' own defaults. Any other job without job-level parameters can still be triggered, but not passed parameters.
+
 ## Use the result
 
 Before the step body runs, `self.databricks_job_result` holds one entry per task, keyed by `task_key`:

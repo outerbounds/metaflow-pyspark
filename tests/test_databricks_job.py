@@ -29,10 +29,11 @@ class FakeJobsAPI:
 
     host = "https://adb-1.azuredatabricks.net"
 
-    def __init__(self, jobs=(), declared=(), tasks=(), outputs=None):
+    def __init__(self, jobs=(), declared=(), tasks=(), outputs=None, job_tasks=None):
         self.calls = []
         self.jobs = list(jobs)
         self.declared = list(declared)
+        self.job_tasks = job_tasks or [{"task_key": "t", "spark_python_task": {}}]
         self.tasks = list(tasks)
         self.outputs = outputs or {}
 
@@ -41,7 +42,12 @@ class FakeJobsAPI:
         if path.endswith("/jobs/list"):
             return {"jobs": self.jobs}
         if path.endswith("/jobs/get"):
-            return {"settings": {"parameters": [{"name": n} for n in self.declared]}}
+            return {
+                "settings": {
+                    "parameters": [{"name": n} for n in self.declared],
+                    "tasks": self.job_tasks,
+                }
+            }
         if path.endswith("/run-now"):
             return {"run_id": 77}
         if path.endswith("/runs/get-output"):
@@ -128,6 +134,22 @@ def test_parameters_the_job_does_not_declare_are_rejected():
     with pytest.raises(SparkConfigError, match="rundate.*It declares: run_date"):
         make_backend(api, job_id="5").submit(ctx(rundate="2024-05-17"))
     assert not any(path.endswith("/run-now") for _, path, _, _ in api.calls)
+
+
+def test_a_notebook_job_without_job_parameters_gets_notebook_params():
+    # Databricks rejects notebook_params on jobs that declare job parameters, and
+    # job_parameters are dropped on jobs that don't.
+    api = FakeJobsAPI(job_tasks=[{"task_key": "a", "notebook_task": {}}])
+    make_backend(api, job_id="5").submit(ctx(region="apac"))
+    body = api.body("/run-now")
+    assert body["notebook_params"] == {"region": "apac"}
+    assert "job_parameters" not in body
+
+
+def test_other_jobs_without_job_parameters_cannot_take_parameters():
+    api = FakeJobsAPI()
+    with pytest.raises(SparkConfigError, match="declares no job parameters"):
+        make_backend(api, job_id="5").submit(ctx(region="apac"))
 
 
 def test_non_string_parameters_are_json_encoded():

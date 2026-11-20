@@ -52,8 +52,8 @@ class DatabricksExistingJobBackend(JobBackend):
 
         body: dict = {"job_id": int(job_id)}
         if ctx.inputs:
-            self._check_parameters(job_id, ctx.inputs)
-            body["job_parameters"] = {k: _stringify(v) for k, v in ctx.inputs.items()}
+            field = self._parameter_field(job_id, ctx.inputs)
+            body[field] = {k: _stringify(v) for k, v in ctx.inputs.items()}
         if config.get("idempotency_token"):
             body["idempotency_token"] = config["idempotency_token"]
         # Sent either way, since leaving it out falls back to the job's own setting.
@@ -104,20 +104,31 @@ class DatabricksExistingJobBackend(JobBackend):
             )
         return matches[0]["job_id"]
 
-    def _check_parameters(self, job_id, params):
+    def _parameter_field(self, job_id, params):
+        """The run-now field the parameters go in, after checking the job takes them."""
+        job = self.client.api("GET", "/api/2.2/jobs/get", query={"job_id": job_id})
+        settings = job.get("settings") or {}
+        declared = [p["name"] for p in settings.get("parameters") or []]
+        if not declared:
+            # Jobs without job-level parameters only take the legacy per-task-type
+            # fields, and of those only notebook widgets are keyed by name.
+            tasks = settings.get("tasks") or []
+            if tasks and all("notebook_task" in t for t in tasks):
+                return "notebook_params"
+            raise SparkConfigError(
+                "Databricks job %s declares no job parameters, so it can't be passed "
+                "%s. Add them under the job's Parameters." % (job_id, ", ".join(params))
+            )
         # Databricks silently drops job_parameters the job doesn't declare, so a typo
         # would run the job with its default instead.
-        job = self.client.api("GET", "/api/2.2/jobs/get", query={"job_id": job_id})
-        declared = [
-            p["name"] for p in (job.get("settings") or {}).get("parameters") or []
-        ]
         unknown = sorted(set(params) - set(declared))
         if unknown:
             raise SparkConfigError(
                 "Databricks job %s does not declare the parameter(s) %s, so they would "
                 "be ignored. It declares: %s."
-                % (job_id, ", ".join(unknown), ", ".join(declared) or "none")
+                % (job_id, ", ".join(unknown), ", ".join(declared))
             )
+        return "job_parameters"
 
     # ------------------------------------------------------------------
     def poll(self, handle):

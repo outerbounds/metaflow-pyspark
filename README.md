@@ -90,7 +90,7 @@ def enrich(self):
     print(self.databricks_job_result["summarize"]["result"])
 ```
 
-`@databricks_job` triggers a job that already exists in the workspace with `run-now`, waits for it, and stores each task's state, error, and notebook exit value in `self.databricks_job_result` before the step body runs. The job keeps its own tasks, compute, and permissions. `job_name=` must match exactly one job, or pass `job_id=`. `parameters` and `parameters_from` become job-level parameters, and names the job doesn't declare are rejected rather than silently dropped. A failed run raises `SparkJobFailed` with the failed tasks' errors and the run link; interrupting the step cancels the run. There is no default timeout, so the job's own applies unless the step sets `timeout=`.
+`@databricks_job` triggers a job that already exists in the workspace with `run-now`, waits for it, and stores each task's state, error, and notebook exit value in `self.databricks_job_result` before the step body runs. The job keeps its own tasks, compute, and permissions. `job_name=` must match exactly one job, or pass `job_id=`. `parameters` and `parameters_from` become job-level parameters, or notebook parameters for a notebook-only job that declares none, and names the job doesn't declare are rejected rather than silently dropped. A failed run raises `SparkJobFailed` with the failed tasks' errors and the run link; interrupting the step cancels the run. There is no default timeout, so the job's own applies unless the step sets `timeout=`.
 
 ### Demos
 
