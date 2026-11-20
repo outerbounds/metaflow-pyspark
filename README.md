@@ -11,7 +11,7 @@ Documentation: https://outerbounds.github.io/metaflow-pyspark/
 pip install -e '.[local]'              # @spark with a local Spark session, needs a JVM
 pip install -e '.[connect]'            # @spark on Databricks through Spark Connect
 pip install -e '.[catalog]' duckdb     # Unity Catalog tables via credential vending
-pip install -e '.[databricks]'         # SQL warehouse statements
+pip install -e '.[databricks]'         # SQL warehouse statements and @databricks_job
 ```
 
 `databricks-connect` bundles its own `pyspark`, so install `[local]` and `[connect]` into separate environments. The extension detects the clash and names it in the error.
@@ -81,9 +81,20 @@ self.daily = query(
 
 Inside an `@spark` step without an explicit `warehouse_id=`, `query()` runs the statement through the step's session, whose compute is already running. Otherwise the warehouse is `warehouse_id=`, else `warehouse_id` in the `databricks` section of a flow-level config artifact (`query(..., flow=self)` reads `self.spark_config`), else `METAFLOW_DATABRICKS_WAREHOUSE_ID` or `DATABRICKS_WAREHOUSE_ID`. Polling shares one wait loop that cancels the statement on interrupt or timeout and reports a control-plane outage as `ControlPlaneError` rather than as a failed statement (`QueryFailed`). Each statement carries the flow, run, step, task, and user as `query_tags`, which land in `system.query.history` (needs `databricks-sdk>=0.86`; older SDKs run without the tags).
 
+### Existing Databricks jobs
+
+```python
+@databricks_job(job_name="nightly-enrichment", parameters_from=["run_date"])
+@step
+def enrich(self):
+    print(self.databricks_job_result["summarize"]["result"])
+```
+
+`@databricks_job` triggers a job that already exists in the workspace with `run-now`, waits for it, and stores each task's state, error, and notebook exit value in `self.databricks_job_result` before the step body runs. The job keeps its own tasks, compute, and permissions. `job_name=` must match exactly one job, or pass `job_id=`. `parameters` and `parameters_from` become job-level parameters, and names the job doesn't declare are rejected rather than silently dropped. A failed run raises `SparkJobFailed` with the failed tasks' errors and the run link; interrupting the step cancels the run. There is no default timeout, so the job's own applies unless the step sets `timeout=`.
+
 ### Demos
 
-The demos are chapters that ask one question of one table, so the access paths can be compared directly. [`demos/00_seed`](demos/00_seed) creates the table. [`demos/01_hello_spark`](demos/01_hello_spark) runs one `@spark` step locally, on serverless, and on a cluster, switched by environment variable. [`demos/02_reading`](demos/02_reading) runs the same statement through Connect, credential vending, and a warehouse, and checks the answers match. [`demos/03_results`](demos/03_results) compares copying a result into the datastore with passing a pinned reference. [`demos/04_writing`](demos/04_writing) writes the same summary three ways. [`demos/05_reproducibility`](demos/05_reproducibility) pins a table, mutates it, and replays the original version. See [`demos/README.md`](demos/README.md) for setup.
+The demos are chapters that ask one question of one table, so the access paths can be compared directly. [`demos/00_seed`](demos/00_seed) creates the table. [`demos/01_hello_spark`](demos/01_hello_spark) runs one `@spark` step locally, on serverless, and on a cluster, switched by environment variable. [`demos/02_reading`](demos/02_reading) runs the same statement through Connect, credential vending, and a warehouse, and checks the answers match. [`demos/03_results`](demos/03_results) compares copying a result into the datastore with passing a pinned reference. [`demos/04_writing`](demos/04_writing) writes the same summary three ways. [`demos/05_reproducibility`](demos/05_reproducibility) pins a table, mutates it, and replays the original version. [`demos/06_existing_jobs`](demos/06_existing_jobs) triggers a workspace job and reads the table it writes. See [`demos/README.md`](demos/README.md) for setup.
 
 ### Tests
 

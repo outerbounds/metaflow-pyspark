@@ -37,3 +37,9 @@ def test_a_session_step_persists_its_artifacts_without_the_session(tmp_path):
     result = run_flow("session_flow.py", tmp_path)
     assert "session flow ok" in result.stdout, result.stdout + result.stderr
     assert result.returncode == 0
+
+
+def test_databricks_job_sets_its_result_and_records_the_run(tmp_path):
+    result = run_flow("databricks_job_flow.py", tmp_path)
+    assert "databricks job flow ok" in result.stdout, result.stdout + result.stderr
+    assert result.returncode == 0

@@ -6,8 +6,8 @@ backend dependencies installed.
 """
 
 import sys
-from dataclasses import dataclass
-from typing import Callable, Dict, Optional
+from dataclasses import dataclass, field
+from typing import Any, Callable, Dict, List, Optional
 
 
 class JobState:
@@ -25,11 +25,24 @@ class JobState:
 
 
 @dataclass
+class StageProgress:
+    """Coarse progress for one stage or task of a remote job, for log lines."""
+
+    stage_id: Any
+    name: Optional[str] = None
+    num_tasks: Optional[int] = None
+    num_completed: Optional[int] = None
+    status: Optional[str] = None
+
+
+@dataclass
 class JobStatus:
     state: str
     message: Optional[str] = None
     error_class: Optional[str] = None
     ui_url: Optional[str] = None
+    spark_ui_url: Optional[str] = None
+    stages: List[StageProgress] = field(default_factory=list)
 
     @property
     def terminal(self):
@@ -42,16 +55,31 @@ class JobStatus:
 
 @dataclass
 class JobHandle:
-    """A reference to a submitted statement."""
+    """A picklable reference to a submitted statement or job run.
+
+    Stored as task metadata for jobs, so a run can be inspected or cancelled after the
+    fact from the client API.
+    """
 
     backend: str
     job_id: str
     ui_url: Optional[str] = None
+    spark_ui_url: Optional[str] = None
+    extra: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self):
+        return {
+            "backend": self.backend,
+            "job_id": self.job_id,
+            "ui_url": self.ui_url,
+            "spark_ui_url": self.spark_ui_url,
+            "extra": self.extra,
+        }
 
 
 @dataclass
 class TaskContext:
-    """The Metaflow task a statement runs for, used for tags and logging."""
+    """The Metaflow task remote work runs for, used for tags, parameters, and logging."""
 
     step_name: str
     pathspec: str
@@ -61,6 +89,7 @@ class TaskContext:
     attempt: int
     user: Optional[str]
     tags: Dict[str, str]
+    inputs: Dict[str, Any] = field(default_factory=dict)
     timeout_minutes: Optional[int] = None
     logger: Optional[Callable] = None
 

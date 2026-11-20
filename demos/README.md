@@ -10,6 +10,7 @@ One table, one question, and the ways the extension offers to get at the data an
 | [`03_results`](03_results) | what comes back | the same result as a DataFrame, all rows, and a pinned table reference, with artifact sizes |
 | [`04_writing`](04_writing) | who writes | the same summary written by Connect, a warehouse, and vended credentials, each pinned and tagged |
 | [`05_reproducibility`](05_reproducibility) | when it is read | pin, mutate, replay: a re-run reads the snapshot the original saw |
+| [`06_existing_jobs`](06_existing_jobs) | who owns the pipeline | an existing Databricks job triggered from a step, with its table read back pinned |
 
 ## The three paths
 
