@@ -1,6 +1,6 @@
 [project]
 site_name = "metaflow-pyspark"
-site_description = "Spark sessions and governed Databricks data for Metaflow"
+site_description = "Spark sessions, Databricks jobs, and governed Databricks data for Metaflow"
 site_url = "https://outerbounds.github.io/metaflow-pyspark/"
 site_dir = "builtdocs"
 repo_url = "https://github.com/outerbounds/metaflow-pyspark"
@@ -12,6 +12,7 @@ nav = [
     {"Use @spark" = "how-to/spark-decorator.md"},
     {"Read Data" = "how-to/read-data.md"},
     {"Write Data" = "how-to/write-data.md"},
+    {"Submit Databricks Jobs" = "how-to/submit-jobs.md"},
   ]},
 ]
 

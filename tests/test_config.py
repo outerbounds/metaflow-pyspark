@@ -26,6 +26,12 @@ def clean_env(monkeypatch):
     monkeypatch.delenv("DATABRICKS_CLUSTER_ID", raising=False)
     monkeypatch.delenv("METAFLOW_DATABRICKS_CLUSTER_ID", raising=False)
     monkeypatch.delenv("METAFLOW_SPARK_BACKEND", raising=False)
+    for env in (
+        "METAFLOW_SPARK_MODE",
+        "METAFLOW_DATABRICKS_VOLUME",
+        "METAFLOW_DATABRICKS_RUNTIME_VERSION",
+    ):
+        monkeypatch.delenv(env, raising=False)
 
 
 class Flow:
@@ -128,3 +134,12 @@ def test_require_explains_how_to_set_the_key():
         require({}, "warehouse_id", "databricks-sql", hint="Set it with ...")
     assert "warehouse_id" in str(exc.value)
     assert "Set it with ..." in str(exc.value)
+
+
+def test_job_settings_come_from_the_environment(monkeypatch):
+    monkeypatch.setenv("METAFLOW_SPARK_MODE", "job")
+    monkeypatch.setenv("METAFLOW_DATABRICKS_VOLUME", "/Volumes/main/mf/staging")
+    config = resolve_config(None, None, {})
+    assert config["mode"] == "job"
+    assert config["databricks"]["volume"] == "/Volumes/main/mf/staging"
+    assert backend_config(config, "databricks")["mode"] == "job"

@@ -1,7 +1,9 @@
 """Cost attribution tags.
 
-Remote work this extension starts is tagged with where it came from, which is what
-makes spend answerable per flow, per run, and per step rather than per warehouse.
+Remote work this extension starts is tagged with where it came from. Statement tags land
+in the query history and a job cluster's tags in the billing records, which is what
+makes spend answerable per flow, per run, and per step rather than per warehouse or
+cluster. Serverless job runs and existing clusters take no per-run tags.
 """
 
 import re
@@ -21,7 +23,7 @@ def sanitize(value):
 
 
 def build_tags(ctx, extra=None):
-    """Build the tag dict for a submitted statement."""
+    """Build the tag dict for a submitted statement or job."""
     tags = {
         TAG_PREFIX + "flow": ctx.flow_name,
         TAG_PREFIX + "run_id": ctx.run_id,

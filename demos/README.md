@@ -1,6 +1,6 @@
 # Demos
 
-One table, one question, and the ways the extension offers to get at the data and write results back. Chapter 1 shows that a step does not care where Spark runs. Chapters 2 to 4 then hold the table (`main.retail.orders`) and the question (daily orders and revenue, the same `DAILY_SQL` throughout) fixed, and change only the access path, so differences in the output are differences between the paths. Chapter 5 reuses the same table for governance and reproducibility.
+One table, one question, and the ways the extension offers to get at the data and write results back. Chapter 1 shows that a step does not care where Spark runs. Chapters 2 to 4 then hold the table (`main.retail.orders`) and the question (daily orders and revenue, the same `DAILY_SQL` throughout) fixed, and change only the access path, so differences in the output are differences between the paths. Chapter 5 reuses the same table for governance and reproducibility, and chapter 6 computes the same summary as a submitted Databricks job.
 
 | Chapter | Changes | Shows |
 | --- | --- | --- |
@@ -10,6 +10,7 @@ One table, one question, and the ways the extension offers to get at the data an
 | [`03_results`](03_results) | what comes back | the same result as a DataFrame, all rows, and a pinned table reference, with artifact sizes |
 | [`04_writing`](04_writing) | who writes | the same summary written by Connect, a warehouse, and vended credentials, each pinned and tagged |
 | [`05_reproducibility`](05_reproducibility) | when it is read | pin, mutate, replay: a re-run reads the snapshot the original saw |
+| [`06_jobs`](06_jobs) | where the driver runs | the same summary submitted as a Databricks job, on serverless or a job cluster, returned as a pinned table |
 
 ## The three paths
 

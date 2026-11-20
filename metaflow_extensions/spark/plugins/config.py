@@ -3,15 +3,15 @@
 Precedence, lowest to highest:
 
     1. defaults
-    2. the Metaflow config and environment variables (METAFLOW_SPARK_BACKEND,
+    2. the Metaflow config and environment variables (METAFLOW_SPARK_*,
        METAFLOW_DATABRICKS_*, DATABRICKS_*)
     3. the flow-level config artifact named by the `config` argument
     4. explicit arguments
 
 The flow-level artifact may be a dict, a JSON string, or an ``IncludeFile``, which
-keeps the original ``spark_config`` idiom working. It holds a top-level ``backend``,
-backend-neutral ``spark-parameters``, and one section per backend (``databricks``,
-``local``).
+keeps the original ``spark_config`` idiom working. It holds a top-level ``backend``
+and ``mode``, backend-neutral ``spark-parameters``, and one section per backend
+(``databricks``, ``local``).
 """
 
 import json
@@ -73,6 +73,9 @@ def _env_config():
     backend = from_conf("SPARK_BACKEND")
     if backend:
         config["backend"] = backend
+    mode = from_conf("SPARK_MODE")
+    if mode:
+        config["mode"] = mode
 
     databricks = {}
     # Honour the standard Databricks environment variables so that a workspace
@@ -91,6 +94,8 @@ def _env_config():
             ("METAFLOW_DATABRICKS_WAREHOUSE_ID", "DATABRICKS_WAREHOUSE_ID"),
         ),
         ("cluster_id", ("METAFLOW_DATABRICKS_CLUSTER_ID", "DATABRICKS_CLUSTER_ID")),
+        ("volume", ("METAFLOW_DATABRICKS_VOLUME",)),
+        ("runtime_version", ("METAFLOW_DATABRICKS_RUNTIME_VERSION",)),
     ):
         for env in envs:
             value = os.environ.get(env)
@@ -99,6 +104,7 @@ def _env_config():
                 break
     if databricks:
         config["databricks"] = databricks
+
     return config
 
 
@@ -141,6 +147,8 @@ def backend_config(config, backend_name):
             neutral, section.get("spark-parameters") or {}
         )
     section.setdefault("timeout", config.get("timeout"))
+    if config.get("mode"):
+        section.setdefault("mode", config["mode"])
     return section
 
 
